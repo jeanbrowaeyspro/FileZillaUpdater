@@ -1,0 +1,244 @@
+using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Documents;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Threading;
+using FileZillaUpdater.Theme;
+using FileZillaUpdater.ViewModels;
+using static FileZillaUpdater.Tests.Fixtures;
+
+namespace FileZillaUpdater.Tests;
+
+/// <summary>
+/// Rendu hors écran de chaque fenêtre, en thème clair et sombre : les fenêtres ne sont
+/// jamais affichées (pas de Show), seulement mesurées puis dessinées dans une image.
+/// </summary>
+public class ViewTests
+{
+    public static readonly string Captures = Path.Combine(Root, "captures");
+
+    /// <summary>
+    /// Dessine le contenu de la fenêtre dans une image, l'enregistre en PNG et renvoie ses
+    /// pixels BGRA. Une fenêtre jamais affichée ne se mesure pas et ne reçoit pas le thème
+    /// Fluent : son contenu est placé dans un cadre qui porte le dictionnaire Fluent du
+    /// thème, les pinceaux de l'application et les ressources de la fenêtre.
+    /// </summary>
+    private static byte[] Render(Window window, bool dark, string name)
+    {
+        var content = (FrameworkElement)window.Content;
+        window.Content = null;
+        var host = new Border { Width = window.Width, Child = content, DataContext = window.DataContext };
+        host.Resources.MergedDictionaries.Add(new ResourceDictionary
+        {
+            Source = new Uri($"pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.{(dark ? "Dark" : "Light")}.xaml"),
+        });
+        host.Resources.MergedDictionaries.Add(window.Resources);
+        ThemeManager.ApplyBrushes(host.Resources, dark);
+        // Fond et texte que le style Fluent donne à une fenêtre affichée.
+        host.SetResourceReference(Border.BackgroundProperty, "WindowBackground");
+        host.SetResourceReference(TextElement.ForegroundProperty, "TextFillColorPrimaryBrush");
+        // Liaisons en attente (titre, textes…) : traitées par le répartiteur.
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        host.Measure(new Size(window.Width, 1000));
+        host.Arrange(new Rect(host.DesiredSize));
+        host.UpdateLayout();
+        var width = (int)Math.Ceiling(host.ActualWidth);
+        var height = (int)Math.Ceiling(host.ActualHeight);
+        Assert.InRange(height, 100, 1000);
+
+        var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(host);
+        Directory.CreateDirectory(Captures);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using (var file = File.Create(Path.Combine(Captures, $"{name}_{(dark ? "sombre" : "clair")}.png")))
+            encoder.Save(file);
+
+        var pixels = new byte[width * height * 4];
+        bitmap.CopyPixels(pixels, width * 4, 0);
+        return pixels;
+    }
+
+    /// <summary>Luminosité moyenne (0 à 255) et nombre de pixels qui s'écartent nettement du fond.</summary>
+    private static (double Mean, int Contrasted) Measure(byte[] pixels)
+    {
+        var luminance = Enumerable.Range(0, pixels.Length / 4)
+                                  .Select(i => (pixels[i * 4] + pixels[i * 4 + 1] + pixels[i * 4 + 2]) / 3.0)
+                                  .ToArray();
+        var mean = luminance.Average();
+        return (mean, luminance.Count(l => Math.Abs(l - mean) > 80));
+    }
+
+    /// <summary>Vérifie le rendu dans les deux thèmes ; renvoie la hauteur de l'image en thème clair.</summary>
+    private static int AssertThemes(Func<Window> create, string name)
+    {
+        var height = 0;
+        RunSta(() =>
+        {
+            var window = create();
+            var pixels = Render(window, dark: false, name);
+            height = pixels.Length / 4 / (int)Math.Ceiling(window.Width);
+            var light = Measure(pixels);
+            Assert.Equal(AppInfo.Title, window.Title);
+            var dark = Measure(Render(create(), dark: true, name));
+            Assert.True(light.Mean > 180, $"fond clair : {light.Mean:F0}");
+            Assert.True(dark.Mean < 90, $"fond sombre : {dark.Mean:F0}");
+            // Texte et contrôles visibles dans les deux thèmes.
+            Assert.True(light.Contrasted > 500, $"clair : {light.Contrasted} pixels contrastés");
+            Assert.True(dark.Contrasted > 500, $"sombre : {dark.Contrasted} pixels contrastés");
+        });
+        return height;
+    }
+
+    private static UpdateService Updates(FakeRegistry registry) =>
+        new(registry, new FakeSource(FakeSource.Latest), new FakeSignature(), new FakeFileZilla(null), new FakeRunner(),
+            Path.GetTempPath());
+
+    [Fact]
+    public async Task SettingsAndInstallWindowsRenderInBothThemes()
+    {
+        var paths = NewPaths();
+        var registry = new FakeRegistry().WithFileZilla("3.70.6", null);
+        var setup = new Setup(paths, registry, new FakeShortcuts());
+        // Fenêtre ouverte depuis le lanceur installé : réglages complets.
+        var settings = new SettingsViewModel(setup, Updates(registry), new AppSettings(), paths.InstalledLauncher, new FakeDialogs());
+        await settings.OpenedAsync();
+        Assert.Equal("FileZillaUpdater 1.0.0", AppInfo.Title);
+        var settingsHeight = AssertThemes(() => new SettingsWindow(settings), "reglages");
+
+        // Fenêtre ouverte depuis un autre dossier : options et bouton "Installer" seulement.
+        var install = new SettingsViewModel(setup, Updates(registry), new AppSettings(), null, new FakeDialogs());
+        var installHeight = AssertThemes(() => new SettingsWindow(install), "installation");
+        Assert.True(installHeight < settingsHeight - 80, $"installation {installHeight} px, réglages {settingsHeight} px");
+    }
+
+    [Fact]
+    public async Task UpdatePromptRendersInBothThemes()
+    {
+        var registry = new FakeRegistry().WithFileZilla("3.70.6", null);
+        var service = Updates(registry);
+        var check = await service.CheckAsync([]);
+        AssertThemes(() => new DialogWindow(new UpdatePromptViewModel(check, service, new FakeDialogs())), "proposition");
+    }
+
+    /// <summary>Fenêtre de proposition au démarrage (sans propriétaire), passée en attente.</summary>
+    private static async Task<Func<(DialogWindow Window, UpdatePromptViewModel ViewModel)>> WaitingWindows()
+    {
+        var registry = new FakeRegistry().WithFileZilla("3.70.6", null);
+        var service = Updates(registry);
+        var check = await service.CheckAsync([]);
+        return () =>
+        {
+            var viewModel = new UpdatePromptViewModel(check, service, new FakeDialogs());
+            // Au premier plan tant qu'elle propose.
+            var window = DialogWindow.Create(viewModel, owner: null);
+            Assert.True(window.Topmost);
+            viewModel.ShowWaiting(viewModel.WaitingText);
+            return (window, viewModel);
+        };
+    }
+
+    [Fact]
+    public async Task WaitingWindowRendersInBothThemes()
+    {
+        var waiting = await WaitingWindows();
+        AssertThemes(() => waiting().Window, "attente");
+        RunSta(() =>
+        {
+            var window = waiting().Window;
+            // L'UAC ne doit pas être masquée.
+            Assert.False(window.Topmost);
+            var content = (DependencyObject)window.Content;
+            var progress = Assert.Single(FindAll<ProgressBar>(content));
+            Assert.True(progress.IsIndeterminate);
+            Assert.Equal(Visibility.Visible, progress.Visibility);
+            Assert.All(FindAll<Button>(content), b => Assert.Equal(Visibility.Collapsed, ((FrameworkElement)b.Parent).Visibility));
+            var texts = Texts(content);
+            Assert.Equal(DialogWindow.Glyph(DialogKind.Info), texts[0].Text);
+            Assert.StartsWith("Téléchargement et installation de FileZilla 3.72.0…", texts[1].Text);
+        });
+    }
+
+    [Theory]
+    [InlineData(DialogKind.Info, "FileZilla 3.72.0 est installé.")]
+    [InlineData(DialogKind.Error, "La mise à jour a échoué (code 2).")]
+    public async Task EndOfInstallRendersInBothThemes(DialogKind kind, string message)
+    {
+        var waiting = await WaitingWindows();
+        DialogWindow Ended()
+        {
+            var (window, viewModel) = waiting();
+            viewModel.ShowMessage(kind, message, "OK");
+            return window;
+        }
+        AssertThemes(Ended, $"fin_{kind}");
+        RunSta(() =>
+        {
+            var window = Ended();
+            // De nouveau au premier plan, barre remplacée par le seul bouton OK.
+            Assert.True(window.Topmost);
+            var content = (DependencyObject)window.Content;
+            Assert.Equal(Visibility.Collapsed, Assert.Single(FindAll<ProgressBar>(content)).Visibility);
+            var ok = Assert.Single(FindAll<Button>(content));
+            Assert.Equal("OK", ok.Content);
+            Assert.True(ok.IsDefault);
+            Assert.Equal(Visibility.Visible, ((FrameworkElement)ok.Parent).Visibility);
+            var texts = Texts(content);
+            Assert.Equal(DialogWindow.Glyph(kind), texts[0].Text);
+            Assert.Equal(message, texts[1].Text);
+        });
+    }
+
+    [Theory]
+    [InlineData(DialogKind.Question, "Désinstaller FileZillaUpdater ?\n\nLe démarrage avec Windows et les raccourcis seront retirés.", "Désinstaller", "Annuler")]
+    [InlineData(DialogKind.Info, "Installation terminée.", "OK")]
+    [InlineData(DialogKind.Error, "L'installeur de FileZilla n'est pas signé valablement par Tim Kosse (signataire : aucune). Rien n'a été installé.", "OK")]
+    public void DialogRendersInBothThemes(DialogKind kind, string message, params string[] buttons)
+    {
+        AssertThemes(() => new DialogWindow(new DialogViewModel(kind, message, buttons)), $"dialogue_{kind}");
+        RunSta(() =>
+        {
+            var window = new DialogWindow(new DialogViewModel(kind, message, buttons));
+            var shown = FindAll<Button>((DependencyObject)window.Content).ToList();
+            Assert.Equal(buttons, shown.Select(b => (string)b.Content));
+            Assert.True(shown[0].IsDefault);
+            Assert.True(shown[^1].IsCancel);
+            Assert.Equal(DialogWindow.Glyph(kind), FindAll<TextBlock>((DependencyObject)window.Content).First().Text);
+        });
+    }
+
+    /// <summary>Textes affichés (symbole, message), liaisons traitées par le répartiteur.</summary>
+    private static List<TextBlock> Texts(DependencyObject content)
+    {
+        Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.ContextIdle);
+        return [.. FindAll<TextBlock>(content)];
+    }
+
+    /// <summary>Éléments d'un type donné dans l'arbre logique.</summary>
+    private static IEnumerable<T> FindAll<T>(DependencyObject root) where T : DependencyObject
+    {
+        foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+        {
+            if (child is T match)
+                yield return match;
+            foreach (var nested in FindAll<T>(child))
+                yield return nested;
+        }
+    }
+
+    [Fact]
+    public void DialogChoiceIsTheButtonRank()
+    {
+        var dialog = new DialogViewModel(DialogKind.Question, "Supprimer ?", "Oui", "Non");
+        var closed = 0;
+        dialog.RequestClose += () => closed++;
+        Assert.Null(dialog.Choice);
+        Assert.Equal([true, false], dialog.Buttons.Select(b => b.IsDefault));
+        Assert.Equal([false, true], dialog.Buttons.Select(b => b.IsCancel));
+        dialog.Buttons[1].Command.Execute(null);
+        Assert.Equal(1, dialog.Choice);
+        Assert.Equal(1, closed);
+        Assert.True(dialog.CanClose);
+    }
+}
