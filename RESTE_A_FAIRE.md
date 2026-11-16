@@ -8,11 +8,6 @@
   Chocolatey ne passe que `/S`, `/user=` vient de l'installeur NSIS de FileZilla et reste à voir sur une
   vraie installation en portée utilisateur).
 
-## Publication (accord de Jean à demander avant chaque étape)
-
-- Créer le dépôt public `jeanbrowaeyspro/FileZillaUpdater` et pousser `main`.
-- Publier la release v1.0.0 avec `dist\FileZillaUpdater.exe`.
-
 ## À décider
 
 - Factoriser avec GreenshotUpdater (lanceur, Setup, SelfUpdate, réglages, dialogues, thème) : bibliothèque
