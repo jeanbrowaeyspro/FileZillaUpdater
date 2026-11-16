@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/FileZillaUpdater.Core/FileZillaUpdater.Core.csproj" />
+    <Project Path="src/FileZillaUpdater.Launcher/FileZillaUpdater.Launcher.csproj" />
+    <Project Path="src/FileZillaUpdater/FileZillaUpdater.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/FileZillaUpdater.Tests/FileZillaUpdater.Tests.csproj" />
+  </Folder>
+</Solution>

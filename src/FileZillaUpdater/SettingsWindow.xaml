@@ -1,0 +1,104 @@
+<Window x:Class="FileZillaUpdater.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:FileZillaUpdater"
+        Title="{Binding Title}"
+        Icon="/FileZillaUpdater.App;component/assets/icon.ico"
+        Width="500" SizeToContent="Height"
+        ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="Visible" />
+        <Style x:Key="SectionTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <Style x:Key="Panel" TargetType="Border">
+            <Setter Property="BorderBrush" Value="{DynamicResource PanelBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="14,10" />
+            <Setter Property="Margin" Value="0,0,0,18" />
+        </Style>
+        <Style x:Key="Label" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource MutedTextBrush}" />
+            <Setter Property="Margin" Value="0,4,16,4" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="Value" TargetType="TextBlock">
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,4" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="Choices" TargetType="ComboBox" BasedOn="{StaticResource {x:Type ComboBox}}">
+            <Setter Property="DisplayMemberPath" Value="Label" />
+            <Setter Property="SelectedValuePath" Value="Key" />
+            <Setter Property="MinWidth" Value="180" />
+            <Setter Property="Margin" Value="0,3" />
+        </Style>
+    </Window.Resources>
+
+    <StackPanel Margin="22,18,22,20">
+        <!-- Versions de FileZilla : masquées pendant l'installation de l'outil. -->
+        <StackPanel Visibility="{Binding ShowsSettings, Converter={StaticResource Visible}}">
+            <TextBlock Text="FileZilla" Style="{StaticResource SectionTitle}" />
+            <Border Style="{StaticResource Panel}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition />
+                        <RowDefinition />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="{local:Tr 'Installed version'}" Style="{StaticResource Label}" />
+                    <TextBlock Grid.Column="1" Text="{Binding InstalledVersionText}" Style="{StaticResource Value}" />
+                    <TextBlock Grid.Row="1" Text="{local:Tr 'Latest version (Chocolatey)'}" Style="{StaticResource Label}" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding LatestVersionText}" Style="{StaticResource Value}" />
+                    <Button MinWidth="100" Grid.Column="2" Grid.RowSpan="2" VerticalAlignment="Center"
+                            Content="{local:Tr 'Check now'}" Command="{Binding CheckCommand}" />
+                </Grid>
+            </Border>
+        </StackPanel>
+
+        <TextBlock Text="{local:Tr 'Options'}" Style="{StaticResource SectionTitle}" />
+        <Border Style="{StaticResource Panel}">
+            <StackPanel>
+                <CheckBox Margin="0,2" Content="{local:Tr 'Start with Windows'}" IsChecked="{Binding RunAtStartup}" />
+                <CheckBox Margin="0,2" Content="{local:Tr 'Desktop shortcut'}" IsChecked="{Binding DesktopShortcut}" />
+                <CheckBox Margin="0,2" Content="{local:Tr 'Start menu shortcut'}" IsChecked="{Binding StartMenuShortcut}" />
+                <Grid Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition />
+                        <RowDefinition />
+                    </Grid.RowDefinitions>
+                    <TextBlock Text="{local:Tr 'Theme'}" Style="{StaticResource Label}" />
+                    <ComboBox Grid.Column="1" HorizontalAlignment="Left" Style="{StaticResource Choices}"
+                              ItemsSource="{Binding Themes}" SelectedValue="{Binding Theme}" />
+                    <TextBlock Grid.Row="1" Text="{local:Tr 'Language'}" Style="{StaticResource Label}" />
+                    <ComboBox Grid.Row="1" Grid.Column="1" HorizontalAlignment="Left" Style="{StaticResource Choices}"
+                              ItemsSource="{Binding Languages}" SelectedValue="{Binding Language}" />
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <TextBlock Text="{Binding Status}" TextWrapping="Wrap" Margin="0,0,0,14"
+                   Foreground="{DynamicResource MutedTextBrush}" />
+
+        <DockPanel LastChildFill="False">
+            <!-- Pendant l'installation de l'outil, seul le bouton "Installer" est affiché. -->
+            <Button MinWidth="100" DockPanel.Dock="Left" Content="{local:Tr 'Uninstall'}" Command="{Binding UninstallCommand}"
+                    Visibility="{Binding ShowsSettings, Converter={StaticResource Visible}}" />
+            <Button MinWidth="100" Margin="8,0,0,0" DockPanel.Dock="Right" Content="{local:Tr 'Close'}" IsCancel="True" Click="OnClose"
+                    Visibility="{Binding ShowsSettings, Converter={StaticResource Visible}}" />
+            <Button MinWidth="100" Margin="8,0,0,0" DockPanel.Dock="Right" Content="{Binding ApplyText}" Command="{Binding ApplyCommand}"
+                    IsDefault="True" Style="{DynamicResource AccentButtonStyle}" />
+        </DockPanel>
+    </StackPanel>
+</Window>
